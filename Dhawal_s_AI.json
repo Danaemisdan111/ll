@@ -1,0 +1,403 @@
+{
+  "name": "Dhawal's AI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "twilio-whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f9352d39-f1b8-4f60-bbc7-ca33fb054cd5",
+      "name": "Twilio Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        200
+      ],
+      "webhookId": "twilio-whatsapp-bot"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "phone_number",
+              "value": "={{ $json.body.From }}"
+            },
+            {
+              "name": "message_text",
+              "value": "={{ $json.body.Body }}"
+            },
+            {
+              "name": "message_sid",
+              "value": "={{ $json.body.MessageSid }}"
+            },
+            {
+              "name": "to_number",
+              "value": "={{ $json.body.To }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e784c1ed-15cd-4325-a1f5-11ca2601c86b",
+      "name": "Extract Message Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.message_text }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "9486b20f-2eb1-49ee-98fb-74ecdeb344e8",
+      "name": "Message Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Robust Rate Limiting Code for n8n\nconst now = Date.now();\nconst userId = $json.body?.From || $json.From || 'anonymous';\n\nconsole.log('Rate limiting check for user:', userId);\n\n// Safe access to workflow static data\nconst store = $workflow.staticData || {};\n\n// Initialize nested structure step by step\nif (!store.rateLimiting) {\n  store.rateLimiting = {};\n}\n\nif (!store.rateLimiting.users) {\n  store.rateLimiting.users = {};\n}\n\n// Get user's message history or initialize empty array\nconst userMessages = store.rateLimiting.users[userId] || [];\n\n// Rate limiting configuration\nconst timeWindow = 60000; // 1 minute in milliseconds\nconst maxMessages = 5; // Maximum messages per minute\n\n// Filter messages within the time window\nconst recentMessages = userMessages.filter(timestamp => {\n  const timeDiff = now - timestamp;\n  return timeDiff < timeWindow && timeDiff >= 0;\n});\n\nconsole.log(`User ${userId} has sent ${recentMessages.length} messages in the last minute`);\n\n// Check if user has exceeded rate limit\nif (recentMessages.length >= maxMessages) {\n  const oldestMessageTime = Math.min(...recentMessages);\n  const waitTime = Math.ceil((oldestMessageTime + timeWindow - now) / 1000);\n  \n  console.log(`Rate limit exceeded for ${userId}. Wait time: ${waitTime} seconds`);\n  \n  return [{\n    json: {\n      rateLimited: true,\n      message: `You're sending messages too quickly. Please wait ${waitTime} seconds before trying again.`,\n      userId: userId,\n      remainingTime: waitTime,\n      messagesInWindow: recentMessages.length\n    }\n  }];\n}\n\n// Add current message timestamp and update store\nrecentMessages.push(now);\nstore.rateLimiting.users[userId] = recentMessages;\n\nconsole.log(`Message allowed for ${userId}. Total messages in window: ${recentMessages.length}`);\n\n// Rate limit not exceeded, allow message through\nreturn [{\n  json: {\n    ...($json || {}),\n    rateLimited: false,\n    userId: userId,\n    messagesInWindow: recentMessages.length\n  }\n}];"
+      },
+      "id": "b8b54f04-e8cc-4691-bcc2-53cd47415ba6",
+      "name": "Rate Limiting",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.rate_limited }}"
+            }
+          ]
+        }
+      },
+      "id": "50177353-d7f5-434a-a520-60d7f48954e7",
+      "name": "Rate Limit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Authorization\": \"Bearer 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\",\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"sonar\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You're Dhaval's AI. In every greeting you have to mention that you're Dhaval's AI. You're strictly going to reply in simple human terms and never web search anything. If someone asks something just simply reply them back like a human does.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.body.Body }}\"\n    }\n  ],\n  \"max_tokens\": 1000,\n  \"temperature\": 0.2,\n  \"stream\": false\n}",
+        "options": {}
+      },
+      "id": "7ea9bfd2-b935-41ab-a29a-4874ce390899",
+      "name": "Call Perplexity API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        220,
+        40
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "ndUsPNdN76CBYj49",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "ai_response",
+              "value": "={{ $json.choices[0]?.message?.content || 'Sorry, I couldn\\'t process your message right now. Please try again later. 😅' }}"
+            },
+            {
+              "name": "phone_number",
+              "value": "={{ $('Extract Message Data').item.json.phone_number }}"
+            },
+            {
+              "name": "to_number",
+              "value": "={{ $('Extract Message Data').item.json.to_number }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "042ed111-176f-47ae-8443-1bce0f890474",
+      "name": "Extract AI Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        440,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "ai_response",
+              "value": "={{ $json.error_message }}"
+            },
+            {
+              "name": "phone_number",
+              "value": "={{ $json.phone_number }}"
+            },
+            {
+              "name": "to_number",
+              "value": "={{ $json.to_number }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "47fc9630-1291-4fad-8235-e121707261b3",
+      "name": "Set Rate Limit Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.twilio.com/2010-04-01/Accounts/ACf4d69b66405be0cb8bc4cb035447be25/Messages.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "To",
+              "value": "={{ $json.phone_number }}"
+            },
+            {
+              "name": "From",
+              "value": "={{ $json.to_number }}"
+            },
+            {
+              "name": "Body",
+              "value": "={{ $json.ai_response }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7b01381-8081-47e5-add0-ffbbd656443c",
+      "name": "Send Twilio Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        660,
+        120
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "ZkGipRKIYM7zNfPP",
+          "name": "Unnamed credential 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Message processed successfully",
+        "options": {}
+      },
+      "id": "971ccfc9-35e0-41f5-9c5e-cb0d0256580c",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        880,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "No message to process",
+        "options": {}
+      },
+      "id": "c93683ba-f088-43ad-8543-df0650e48976",
+      "name": "Respond No Message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        280
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Twilio Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Message Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message Data": {
+      "main": [
+        [
+          {
+            "node": "Message Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Exists?": {
+      "main": [
+        [
+          {
+            "node": "Rate Limiting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond No Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limiting": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit OK?": {
+      "main": [
+        [
+          {
+            "node": "Set Rate Limit Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Perplexity API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Perplexity API": {
+      "main": [
+        [
+          {
+            "node": "Extract AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract AI Response": {
+      "main": [
+        [
+          {
+            "node": "Send Twilio Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rate Limit Response": {
+      "main": [
+        [
+          {
+            "node": "Send Twilio Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Twilio Message": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b8750036-eb39-4c18-8d65-9c66e025ac6a",
+  "meta": {
+    "instanceId": "e062d2468dedb71007b7ac4f9272b7b01b1b0cd9f758df874c86a68808fc94b3"
+  },
+  "id": "ZgpeaNpwJrEMWqOg",
+  "tags": []
+}
